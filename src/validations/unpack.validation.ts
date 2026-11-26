@@ -18,11 +18,20 @@ const previewPassage = {
   body: Joi.object().keys(selection)
 }
 
-// Group Chat arrives in a later release; until then only Private Chat is accepted
+// Group Chat posts start from a Private Chat card, through sharePassage, so the participant has read it all first
 const sendPassage = {
   params,
   body: Joi.object().keys({ ...selection, destination: Joi.string().valid('privateChat').required() })
 }
 
-const unpackValidation = { previewPassage, sendPassage }
+const sharePassage = {
+  params,
+  body: Joi.object().keys({
+    messageId: Joi.string().custom(objectId).required(),
+    transcriptPasscode: Joi.string(),
+    chatPasscode: Joi.string()
+  })
+}
+
+const unpackValidation = { previewPassage, sendPassage, sharePassage }
 export default unpackValidation

@@ -8,7 +8,7 @@ const validRequest = () => ({
   conversation: new mongoose.Types.ObjectId(),
   user: new mongoose.Types.ObjectId(),
   mode: 'lastMinute',
-  destination: 'privateChat',
+  destinations: ['privateChat'],
   status: 'sent',
   chunkIds: [new mongoose.Types.ObjectId()],
   quote: 'We measure reliability with SLOs.',
@@ -58,7 +58,7 @@ describe('UnpackRequest model', () => {
     it('saves a preview with no destination, request message or answer yet', async () => {
       const saved = await UnpackRequest.create(passageAsk())
 
-      expect(saved.destination).toBeUndefined()
+      expect(saved.destinations).toEqual([])
       expect(saved.answerMessage).toBeUndefined()
       expect(saved.range!.endOffset).toBe(12)
     })
@@ -82,6 +82,18 @@ describe('UnpackRequest model', () => {
 
       await expect(UnpackRequest.create({ ...validRequest(), user })).resolves.toBeDefined()
     })
+  })
+
+  it('keeps both destinations when an ask goes to Private Chat and then Group Chat', async () => {
+    const saved = await UnpackRequest.create({ ...validRequest(), destinations: ['privateChat', 'groupChat'] })
+
+    expect(saved.destinations).toEqual(['privateChat', 'groupChat'])
+  })
+
+  it('rejects a destination it does not support', async () => {
+    await expect(UnpackRequest.create({ ...validRequest(), destinations: ['email'] })).rejects.toThrow(
+      mongoose.Error.ValidationError
+    )
   })
 
   it('rejects a mode it does not support yet', async () => {

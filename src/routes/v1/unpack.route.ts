@@ -81,7 +81,7 @@ router
  *       posts nothing new and returns the existing card's message ID. A locked event refuses the send with
  *       eventLocked. If the card can't be posted for another reason, the request fails and can be sent again.
  *       A send that has to start a new explanation counts toward the same per-minute limit as a preview. Only
- *       `privateChat` is accepted for now.
+ *       `privateChat` is accepted: Group Chat posts start from a Private Chat card, through the share call.
  *     tags: [Unpack]
  *     security:
  *       - bearerAuth: []
@@ -131,5 +131,84 @@ router
 router
   .route('/:conversationId/send')
   .post(auth('createMessage'), validate(unpackValidation.sendPassage), unpackController.sendPassage)
+
+/**
+ * @swagger
+ * /unpack/{conversationId}/share:
+ *   post:
+ *     summary: Share a Private Chat explanation card to Group Chat
+ *     description: >
+ *       Posts a copy of one of the participant's own `unpack_explanation` cards from Private Chat to Group Chat,
+ *       as the participant's own message under their pseudonym (`fromAgent` is false). The copy is the card as
+ *       the participant saw it, with `destination: groupChat` and a `footer` saying the explanation came from the
+ *       assistant. Agents don't evaluate or answer it. If a moderator hides every post by the participant,
+ *       before or after they share, the post is hidden from the room, the participant still sees it, and it
+ *       doesn't stop anyone else posting the passage. If a moderator hides just that post, nobody else can share
+ *       a passage it covers until it is unhidden: those shares are refused with sharingDisabled (409), and
+ *       their cards carry `sharingDisabled: true`. Clearing the transcript deletes these posts, and open clients
+ *       get a `message:deleted` event with their IDs. Group Chat never gets two posts about the same
+ *       transcript: if a post already covers any chunk of this passage, nothing is posted, the answer is
+ *       `status: alreadyPosted` with that post's message ID and the `text` to show. If that post is still being
+ *       made, the call waits for it, and answers unpackFailed (503) if it isn't done in 10 seconds. Every 202
+ *       answer is also saved on the participant's card as `groupChatShare`. Sharing a card that was
+ *       already posted from the same card answers `status: sent` with the existing post's ID. Each participant
+ *       can post to Group Chat once every 2 minutes per event, counted from their last post that went
+ *       through; an alreadyPosted answer doesn't count. A share during the pre-event window, when participants
+ *       can join before the event starts, is refused with eventNotStarted, and a share after the event ends is
+ *       refused with eventEnded.
+ *     tags: [Unpack]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/UnpackTranscriptPasscode'
+ *               - type: object
+ *                 required:
+ *                   - messageId
+ *                 properties:
+ *                   messageId:
+ *                     type: string
+ *                     description: ID of the participant's Private Chat `unpack_explanation` card.
+ *                   chatPasscode:
+ *                     type: string
+ *                     description: >-
+ *                       The Group Chat channel's passcode, the same one the client uses to read Group Chat.
+ *                       Required when Group Chat has one, which it does by default. A missing or wrong
+ *                       passcode is refused with 400 and reason wrongPasscode.
+ *     responses:
+ *       202:
+ *         description: The card was posted to Group Chat, or a post about the same passage already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UnpackShareResult'
+ *       400:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       404:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       409:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       429:
+ *         $ref: '#/components/responses/UnpackRefused'
+ *       503:
+ *         $ref: '#/components/responses/UnpackRefused'
+ */
+router
+  .route('/:conversationId/share')
+  .post(auth('createMessage'), validate(unpackValidation.sharePassage), unpackController.sharePassage)
 
 export default router

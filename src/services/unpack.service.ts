@@ -1,13 +1,14 @@
+import { createHash } from 'node:crypto'
 import { MemoryStore, type Options } from 'express-rate-limit'
 import httpStatus from 'http-status'
 import mongoose from 'mongoose'
 import config from '../config/config.js'
 import logger from '../config/logger.js'
-import { Channel, Conversation, UnpackPassageExplanation, UnpackRequest } from '../models/index.js'
+import { Channel, Conversation, Message, UnpackGroupPost, UnpackPassageExplanation, UnpackRequest } from '../models/index.js'
 import ApiError from '../utils/ApiError.js'
 import assertMembership from '../utils/assertMembership.js'
-import authChannels from '../utils/authChannels.js'
-import { findMessages } from '../utils/messageVisibility.js'
+import authChannels, { assertChannelPasscode } from '../utils/authChannels.js'
+import { findMessages, loadHideContext } from '../utils/messageVisibility.js'
 import sleep from '../utils/sleep.js'
 import { getBedrockChat, resolveBedrockModel } from '../agents/helpers/getModelChat.js'
 import transcript from '../agents/helpers/transcript.js'
@@ -19,14 +20,18 @@ import {
   isUnpackerEnabled,
   selectionTooLong,
   toPlainText,
+  toSharedChatText,
   TRANSCRIPT_TEXT_CHUNKS,
   unpackError,
   UNPACK_CONTEXT_AFTER_SECONDS,
   UNPACK_PASSAGE_MAX_CHARACTERS
 } from '../agents/helpers/unpackPassage.js'
 import { getConversationType } from '../conversations/index.js'
+import { CHAT_CHANNEL } from '../conversations/eventAssistant.js'
+import isPreEventWindowOpen from './conversation.service/preEventWindow.js'
 import schedule from '../jobs/schedule.js'
 import messageService, { agentResponseToMessageData } from './message.service.js'
+import { resolveDisplayName } from './user.service.js'
 import {
   IUnpackPassageExplanation,
   ReadyUnpackPassageExplanation,
@@ -45,6 +50,12 @@ const modelCallCounts = new MemoryStore()
 modelCallCounts.init({ windowMs: 60 * 1000 } as Options)
 // Resolved here so a model that doesn't run on Bedrock stops the server at startup, not every preview
 const UNPACK_MODEL = resolveBedrockModel(config.unpackLLMModel)
+// One participant can put a post in front of the whole room alone, so Group Chat gets a limit of its own
+export const UNPACK_GROUP_CHAT_POST_WINDOW_MS = 2 * 60 * 1000 // 2 min
+// When each participant started their last Group Chat post that went through, so the window runs from that post
+const lastGroupChatPosts = new Map<string, number>()
+// Posts block a whole transcript chunk, which can hold other sentences than the one this person picked
+const UNPACK_ALREADY_POSTED_TEXT = 'A post about this part of the talk is already in Group Chat.'
 const UNPACK_WAIT_POLL_MS = 250
 const UNPACK_WAIT_SLOW_POLL_MS = 1000
 const UNPACK_WAIT_FAST_POLLING_MS = 1000
@@ -62,13 +73,24 @@ export const UNPACK_TIMING = {
   // A row still generating after this long was most likely left behind by a server that stopped
   staleGenerationMs: 60 * 1000,
   // Late enough that any write running at Send time has finished or gone stale
-  pendingCheckDelayMs: 90 * 1000
+  pendingCheckDelayMs: 90 * 1000,
+  // A Group Chat post still `posting` after this long was most likely left behind by a server that stopped
+  staleGroupPostMs: 60 * 1000,
+  // How long a share waits for another post of the same passage to finish before asking to try again
+  groupPostWaitMs: 10 * 1000
 }
 
 const backgroundWork = new Set<Promise<unknown>>()
 
 const unpackFailed = () =>
   unpackError(httpStatus.SERVICE_UNAVAILABLE, 'unpackFailed', "The assistant couldn't explain that just now. Try again.")
+
+const cardNotFound = () =>
+  unpackError(httpStatus.NOT_FOUND, 'cardNotFound', 'That explanation is not one of your Private Chat cards in this event.')
+
+// Worded so a participant can't tell a moderator hid the post
+const sharingDisabled = () =>
+  unpackError(httpStatus.CONFLICT, 'sharingDisabled', 'Sharing options are not enabled for this post.')
 
 const transcriptGone = () =>
   unpackError(httpStatus.BAD_REQUEST, 'chunkNotInTranscript', 'The transcript this passage quotes was deleted.')
@@ -140,6 +162,26 @@ async function loadEvent(conversationId: string, user, transcriptPasscode?: stri
   return { conversation, assistant }
 }
 
+async function findGroupChat(conversation, chatPasscode?: string) {
+  const channel = await Channel.findOne({ _id: { $in: conversation.channels }, name: CHAT_CHANNEL })
+  if (!channel) throw unpackError(httpStatus.CONFLICT, 'noGroupChat', 'This event has no Group Chat.')
+  assertChannelPasscode(channel, chatPasscode)
+  return channel
+}
+
+async function loadEventToPostIn(conversationId: string, user, transcriptPasscode?: string): Promise<UnpackEvent> {
+  const loaded = await loadEvent(conversationId, user, transcriptPasscode)
+  // Checked here because the post itself would refuse with a 400 a client can't tell apart from a bad request
+  if (loaded.conversation.locked) {
+    throw unpackError(httpStatus.CONFLICT, 'eventLocked', 'This event is locked, so nothing new can be posted in it.')
+  }
+  const senderPrivateChat = await findPrivateChat(loaded.conversation, user._id, loaded.assistant)
+  if (!senderPrivateChat) {
+    throw unpackError(httpStatus.CONFLICT, 'noPrivateChat', 'You have no Private Chat with the assistant in this event yet.')
+  }
+  return { ...loaded, senderPrivateChat }
+}
+
 async function loadEventForPosting(conversationId: mongoose.Types.ObjectId): Promise<UnpackEvent | null> {
   const conversation = await Conversation.findById(conversationId).populate('agents')
   const assistant = conversation && findAssistant(conversation)
@@ -198,6 +240,12 @@ async function cardSaved(conversationId: mongoose.Types.ObjectId, messageId: mon
 }
 
 const isDuplicateKey = (error) => error?.code === 11000
+
+/** The same parts always give the same ID, so a second request saving the same message fails on the unique `_id`. */
+function stableMessageId(...parts: (string | mongoose.Types.ObjectId)[]) {
+  const hash = createHash('sha256').update(parts.map(String).join(':')).digest('hex')
+  return new mongoose.Types.ObjectId(hash.slice(0, 24))
+}
 
 /**
  * Finds the shared explanation for a passage, or claims the right to write it. Only one request can claim a
@@ -377,14 +425,17 @@ async function writeExplanation(
 async function postAsk(event: UnpackEvent, askId: mongoose.Types.ObjectId, explanation: ReadyUnpackPassageExplanation) {
   const answerId = new mongoose.Types.ObjectId()
   const ask = await UnpackRequest.findOneAndUpdate(
-    { _id: askId, status: 'previewed', destination: { $exists: true } },
+    { _id: askId, status: 'previewed', destinations: 'privateChat' },
     { status: 'sent', answerMessage: answerId, explanation: explanation._id },
     { new: true }
   )
   if (!ask) return
+  const card = toCard(explanation, 'privateChat')
+  // eslint-disable-next-line no-use-before-define
+  if (await isSharingDisabled(ask.conversation, card, ask.user)) card.sharingDisabled = true
   try {
     await postToPrivateChat(event, ask.user, {
-      message: toCard(explanation, ask.destination!),
+      message: card,
       messageType: 'json',
       messageId: answerId
     })
@@ -410,7 +461,7 @@ async function postWaitingAsks(explanation: ReadyUnpackPassageExplanation) {
   const waiting = await UnpackRequest.find({
     passageKey: explanation.passageKey,
     status: 'previewed',
-    destination: { $exists: true }
+    destinations: 'privateChat'
   }).select('_id')
   if (waiting.length === 0) return
   const event = await loadEventForPosting(explanation.conversation)
@@ -426,7 +477,7 @@ async function postWaitingAsks(explanation: ReadyUnpackPassageExplanation) {
 }
 
 async function failWaitingAsks(passageKey: string) {
-  const waiting = await UnpackRequest.find({ passageKey, status: 'previewed', destination: { $exists: true } })
+  const waiting = await UnpackRequest.find({ passageKey, status: 'previewed', destinations: 'privateChat' })
   if (waiting.length === 0) return
   const event = await loadEventForPosting(waiting[0].conversation)
   for (const { _id } of waiting) {
@@ -434,8 +485,8 @@ async function failWaitingAsks(passageKey: string) {
       // A request that claimed the passage again since will post these asks or fail them itself
       if (await UnpackPassageExplanation.exists({ passageKey })) return
       const ask = await UnpackRequest.findOneAndUpdate(
-        { _id, status: 'previewed', destination: { $exists: true } },
-        { $unset: { destination: 1 } }
+        { _id, status: 'previewed', destinations: 'privateChat' },
+        { $pull: { destinations: 'privateChat' } }
       )
       if (ask && event) {
         await postToPrivateChat(event, ask.user, { message: UNPACK_FAILED_REPLY, messageType: 'text' })
@@ -557,26 +608,21 @@ const sendPassage = async (
   conversationId: string,
   user,
   selection: UnpackRange,
-  destination: UnpackDestination,
+  // Group Chat posts go through sharePassage, from a card the participant has already read
+  destination: Extract<UnpackDestination, 'privateChat'>,
   transcriptPasscode?: string
 ) => {
-  const loaded = await loadEvent(conversationId, user, transcriptPasscode)
-  // Checked here because the post itself would refuse with a 400 a client can't tell apart from a bad request
-  if (loaded.conversation.locked) {
-    throw unpackError(httpStatus.CONFLICT, 'eventLocked', 'This event is locked, so nothing new can be posted in it.')
-  }
-  const senderPrivateChat = await findPrivateChat(loaded.conversation, user._id, loaded.assistant)
-  if (!senderPrivateChat) {
-    throw unpackError(httpStatus.CONFLICT, 'noPrivateChat', 'You have no Private Chat with the assistant in this event yet.')
-  }
-  const event = { ...loaded, senderPrivateChat }
+  const event = await loadEventToPostIn(conversationId, user, transcriptPasscode)
   const passage = await resolvePassage(event.conversation._id, selection)
   const ask = await findOrCreateAsk(event.conversation._id, user, passage)
 
   let storedDestination = false
   if (ask.status === 'previewed') {
     if (await needsModelCall(passage.key)) await enforceModelCallLimit(ask)
-    const stored = await UnpackRequest.updateOne({ _id: ask._id, status: 'previewed' }, { destination })
+    const stored = await UnpackRequest.updateOne(
+      { _id: ask._id, status: 'previewed' },
+      { $addToSet: { destinations: destination } }
+    )
     storedDestination = stored.modifiedCount === 1
     // Claimed after the destination is stored, so any write that finishes or fails from now on includes this ask
     const claim = await claimExplanation(event.conversation._id, passage)
@@ -607,8 +653,8 @@ const sendPassage = async (
 
 async function giveUpOnAsk(event: UnpackEvent, askId: string) {
   const ask = await UnpackRequest.findOneAndUpdate(
-    { _id: askId, status: 'previewed', destination: { $exists: true } },
-    { $unset: { destination: 1 } }
+    { _id: askId, status: 'previewed', destinations: 'privateChat' },
+    { $pull: { destinations: 'privateChat' } }
   )
   if (ask) await postToPrivateChat(event, ask.user, { message: UNPACK_FAILED_REPLY, messageType: 'text' })
 }
@@ -637,7 +683,7 @@ async function tryToFinishAsk(event: UnpackEvent, ask, passage: UnpackPassage): 
  */
 const finishPendingAsk = async (askId: string, attempt: number) => {
   const ask = await UnpackRequest.findById(askId)
-  if (!ask || ask.status !== 'previewed' || !ask.destination || !ask.range) return
+  if (!ask || ask.status !== 'previewed' || !ask.destinations.includes('privateChat') || !ask.range) return
   const event = await loadEventForPosting(ask.conversation)
   if (!event) return
   let passage: UnpackPassage
@@ -674,4 +720,371 @@ const finishPendingAsk = async (askId: string, attempt: number) => {
   }
 }
 
-export default { previewPassage, sendPassage, finishPendingAsk }
+// The post carries the participant's name, so the footer says the words are the assistant's, not theirs
+function toGroupChatCard(card: UnpackExplanation, assistant, pseudonym: string): UnpackExplanation {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { groupChatShare, sharingDisabled: _sharingDisabled, ...shared } = card
+  const footer = `${pseudonym} shared this explanation from ${assistant.agentConfig.botName}.`
+  return { ...shared, destination: 'groupChat', footer, text: `${card.text}\n\n${footer}` }
+}
+
+/** Saves the share's result on the participant's card, so clients can show it after a reload. */
+async function saveShareOnCard(conversationId: mongoose.Types.ObjectId, cardId: mongoose.Types.ObjectId, result) {
+  const groupChatShare: UnpackExplanation['groupChatShare'] = {
+    status: result.status,
+    messageId: result.messageId,
+    ...(result.text && { text: result.text })
+  }
+  try {
+    await Message.updateOne(
+      { _id: cardId, conversation: conversationId },
+      { $set: { 'body.groupChatShare': groupChatShare } }
+    )
+  } catch (error) {
+    // The share already happened, so the participant still gets its answer
+    logger.error(`unpack: could not save the Group Chat share on card ${cardId}`, error)
+  }
+}
+
+// One ask is one participant's card for one passage, so each ask has at most one Group Chat post
+const groupChatPostId = (askId: mongoose.Types.ObjectId) => stableMessageId('unpackGroupChatPost', askId)
+
+function sentToGroupChat(askId: mongoose.Types.ObjectId, messageId: mongoose.Types.ObjectId) {
+  return { askId: askId.toString(), status: 'sent', messageId: messageId.toString() }
+}
+
+/**
+ * Finds a finished post that overlaps these chunks, waiting only while every overlapping post is still `posting`,
+ * so a share never links to a post that then fails.
+ */
+async function waitForGroupPost(chunkIds: mongoose.Types.ObjectId[], deadline: number) {
+  for (;;) {
+    const overlapping = await UnpackGroupPost.find({ chunkIds: { $in: chunkIds } }).sort({ createdAt: 1, _id: 1 })
+    const posted = overlapping.find(({ status }) => status === 'posted')
+    if (posted || overlapping.length === 0) return posted ?? null
+    if (Date.now() >= deadline) throw unpackFailed()
+    await sleep(Math.min(UNPACK_WAIT_POLL_MS, Math.max(0, deadline - Date.now())))
+  }
+}
+
+/**
+ * A row a stopped server left at `posting` would block its passage for good, so once it is stale it is settled:
+ * marked posted when its message was saved, and removed when it wasn't.
+ */
+async function settleAbandonedGroupPosts(conversationId: mongoose.Types.ObjectId, chunkIds: mongoose.Types.ObjectId[]) {
+  const staleBefore = new Date(Date.now() - UNPACK_TIMING.staleGroupPostMs)
+  const abandoned = await UnpackGroupPost.find({
+    chunkIds: { $in: chunkIds },
+    status: 'posting',
+    createdAt: { $lt: staleBefore }
+  })
+  for (const row of abandoned) {
+    if (await cardSaved(conversationId, row.message)) {
+      await UnpackGroupPost.updateOne({ _id: row._id, status: 'posting' }, { status: 'posted' })
+    } else {
+      await UnpackGroupPost.deleteOne({ _id: row._id, status: 'posting' })
+    }
+  }
+}
+
+/**
+ * Removes the rows of finished overlapping posts whose author a moderator has since hidden with hide-all, so those
+ * posts stop blocking the passage, like a share by an already-hidden author that saves no row. A post also hidden on
+ * its own keeps its row, since that hide blocks the passage.
+ */
+async function releaseHiddenAuthorsPosts(
+  conversationId: mongoose.Types.ObjectId,
+  chunkIds: mongoose.Types.ObjectId[],
+  hiddenAuthors: Set<string>
+) {
+  if (hiddenAuthors.size === 0) return
+  const rows = await UnpackGroupPost.find({ chunkIds: { $in: chunkIds }, status: 'posted' })
+    .select('message')
+    .lean()
+  if (rows.length === 0) return
+  const released = await findMessages(
+    conversationId,
+    'admin',
+    {
+      _id: { $in: rows.map(({ message }) => message) },
+      owner: { $in: [...hiddenAuthors] },
+      hiddenByAdmin: { $ne: true }
+    },
+    { select: '_id', lean: true }
+  )
+  if (released.length === 0) return
+  await UnpackGroupPost.deleteMany({ status: 'posted', message: { $in: released.map(({ _id }) => _id) } })
+}
+
+/** Group Chat Unpacker posts a moderator hid on their own that cover any of these chunks. */
+function findSingleHiddenGroupPosts(conversationId: mongoose.Types.ObjectId | string, chunkIds: string[]) {
+  return findMessages(
+    conversationId,
+    'admin',
+    {
+      bodyType: 'json',
+      'body.type': 'unpack_explanation',
+      'body.destination': 'groupChat',
+      hiddenByAdmin: true,
+      'body.chunkIds': { $in: chunkIds }
+    },
+    { select: '_id owner body.chunkIds', lean: true }
+  )
+}
+
+/**
+ * Whether a participant's card overlaps someone else's post hidden on its own. Their own hidden posts don't count:
+ * they still see those posts, so a mark or refusal would tell them a post was hidden.
+ */
+function blocksCard(hiddenPosts, card: UnpackExplanation, participantId: mongoose.Types.ObjectId) {
+  return hiddenPosts.some(
+    ({ owner, body }) => !participantId.equals(owner) && body.chunkIds.some((id) => card.chunkIds.includes(id))
+  )
+}
+
+async function isSharingDisabled(
+  conversationId: mongoose.Types.ObjectId,
+  card: UnpackExplanation,
+  participantId: mongoose.Types.ObjectId
+) {
+  return blocksCard(await findSingleHiddenGroupPosts(conversationId, card.chunkIds), card, participantId)
+}
+
+/**
+ * Marks the Private Chat cards that overlap a Group Chat post after a moderator hides or unhides it on its own, and
+ * clears the mark once no hidden post overlaps a card. Does nothing for any other message.
+ */
+async function refreshSharingDisabled(
+  conversationId: mongoose.Types.ObjectId | string,
+  messageId: mongoose.Types.ObjectId | string
+) {
+  const [post]: { body: UnpackExplanation }[] = await findMessages(
+    conversationId,
+    'admin',
+    { _id: messageId, bodyType: 'json', 'body.type': 'unpack_explanation', 'body.destination': 'groupChat' },
+    { select: 'body.chunkIds', lean: true }
+  )
+  if (!post) return
+  const cards: { _id: mongoose.Types.ObjectId; body: UnpackExplanation }[] = await findMessages(
+    conversationId,
+    'admin',
+    {
+      bodyType: 'json',
+      'body.type': 'unpack_explanation',
+      'body.destination': 'privateChat',
+      'body.chunkIds': { $in: post.body.chunkIds }
+    },
+    { select: 'body.chunkIds', lean: true }
+  )
+  if (cards.length === 0) return
+  const asks = await UnpackRequest.find({ answerMessage: { $in: cards.map(({ _id }) => _id) } })
+    .select('user answerMessage')
+    .lean()
+  const participantOf = new Map(asks.map(({ answerMessage, user }) => [answerMessage!.toString(), user]))
+  const hiddenPosts = await findSingleHiddenGroupPosts(
+    conversationId,
+    cards.flatMap(({ body }) => body.chunkIds)
+  )
+  const blocked = cards.filter(({ _id, body }) => blocksCard(hiddenPosts, body, participantOf.get(_id.toString())!))
+  const open = cards.filter((card) => !blocked.includes(card))
+  await Message.updateMany({ _id: { $in: blocked.map(({ _id }) => _id) } }, { $set: { 'body.sharingDisabled': true } })
+  await Message.updateMany({ _id: { $in: open.map(({ _id }) => _id) } }, { $unset: { 'body.sharingDisabled': 1 } })
+}
+
+/** Takes this participant's one Group Chat post for the window, and returns a function that gives it back. */
+function takeGroupChatSlot(key: string) {
+  const now = Date.now()
+  for (const [otherKey, postedAt] of lastGroupChatPosts) {
+    if (now - postedAt >= UNPACK_GROUP_CHAT_POST_WINDOW_MS) lastGroupChatPosts.delete(otherKey)
+  }
+  if (lastGroupChatPosts.has(key)) {
+    throw unpackError(
+      httpStatus.TOO_MANY_REQUESTS,
+      'groupChatRateLimited',
+      `You can post to Group Chat once every ${UNPACK_GROUP_CHAT_POST_WINDOW_MS / 60000} minutes. Try again shortly.`
+    )
+  }
+  lastGroupChatPosts.set(key, now)
+  return () => {
+    if (lastGroupChatPosts.get(key) === now) lastGroupChatPosts.delete(key)
+  }
+}
+
+function alreadyPosted(askId: mongoose.Types.ObjectId, existingMessageId) {
+  return {
+    askId: askId.toString(),
+    status: 'alreadyPosted',
+    messageId: existingMessageId.toString(),
+    text: UNPACK_ALREADY_POSTED_TEXT
+  }
+}
+
+/**
+ * Posts the card as the participant's own Group Chat message and records Group Chat on the ask. When the transcript
+ * was cleared while it posted, it removes the post and throws; when its row was taken for abandoned mid-post, it
+ * removes the post and returns null. A hidden participant's post has no `rowId`, since it saves no row.
+ */
+async function postGroupCard(
+  event: UnpackEvent,
+  groupChat,
+  user,
+  askId: mongoose.Types.ObjectId,
+  card: UnpackExplanation,
+  { giveSlotBack, rowId }: { giveSlotBack: () => void; rowId? }
+) {
+  const conversationId = event.conversation._id
+  const chunkIds = card.chunkIds.map((id) => new mongoose.Types.ObjectId(id))
+  const messageId = groupChatPostId(askId)
+  const forget = async () => {
+    if (rowId) await UnpackGroupPost.deleteOne({ _id: rowId })
+  }
+  try {
+    await messageService.newMessageHandler(
+      {
+        _id: messageId,
+        conversation: conversationId,
+        body: card,
+        bodyType: 'json',
+        channels: [groupChat],
+        // Adapters forward to chats that can't draw a card, such as Zoom, so they get a short text version
+        parseOutput: (saved) => ({
+          ...saved.toObject(),
+          bodyType: 'text',
+          body: toSharedChatText(card, event.assistant.agentConfig.botName)
+        })
+      },
+      user,
+      null,
+      { serverCard: true }
+    )
+  } catch (error) {
+    if (isDuplicateKey(error)) {
+      // Another request for this same card saved the post first, so this one posted nothing
+      giveSlotBack()
+    } else if (!(await cardSaved(conversationId, messageId))) {
+      await forget()
+      giveSlotBack()
+      throw error
+    } else {
+      logger.error(`unpack: Group Chat post ${messageId} was saved, but posting it then failed`, error)
+    }
+  }
+  const ours = !rowId || (await UnpackGroupPost.updateOne({ _id: rowId }, { status: 'posted' })).matchedCount === 1
+  // Clearing the transcript while this was posting deletes the rows, but not a post saved after it ran
+  const chunksSaved = await chunksStillSaved(conversationId, chunkIds)
+  if (!ours || !chunksSaved) {
+    await transcript.deleteUnpackCards(conversationId, { _id: messageId })
+    await forget()
+    giveSlotBack()
+    if (!chunksSaved) throw transcriptGone()
+    return null
+  }
+  await UnpackRequest.updateOne({ _id: askId }, { $addToSet: { destinations: 'groupChat' } })
+  return sentToGroupChat(askId, messageId)
+}
+
+/**
+ * Saves the row before posting, so when two people post the same passage at once, the unique index refuses the
+ * second. Returns null when another post got in first, including one that took this row for abandoned mid-post.
+ */
+async function tryToPostToGroupChat(event: UnpackEvent, groupChat, user, askId: mongoose.Types.ObjectId, card) {
+  const giveSlotBack = takeGroupChatSlot(`${event.conversation._id}:${user._id}`)
+  let row
+  try {
+    row = await UnpackGroupPost.create({
+      conversation: event.conversation._id,
+      ask: askId,
+      chunkIds: card.chunkIds.map((id) => new mongoose.Types.ObjectId(id)),
+      message: groupChatPostId(askId),
+      status: 'posting'
+    })
+  } catch (error) {
+    giveSlotBack()
+    if (isDuplicateKey(error)) return null
+    throw error
+  }
+  return postGroupCard(event, groupChat, user, askId, card, { giveSlotBack, rowId: row._id })
+}
+
+/**
+ * Posts a card to Group Chat unless a post already covers any of its chunks. A post a moderator hid on its own blocks
+ * the passage until it is unhidden. A post hidden only by hiding every post by its author blocks nobody: a share by a
+ * hidden author saves no row, and a row saved before the hide is removed here.
+ */
+async function postToGroupChat(event: UnpackEvent, groupChat, user, askId: mongoose.Types.ObjectId, card) {
+  const conversationId = event.conversation._id
+  const chunkIds = card.chunkIds.map((id) => new mongoose.Types.ObjectId(id))
+  const { hiddenAuthors, hiddenIds } = await loadHideContext(conversationId)
+  const userIsHidden = hiddenAuthors.has(user._id.toString())
+  const ownPostId = groupChatPostId(askId)
+  // A hidden post may have no row, so its author's repeat share finds it by its ID instead
+  if (hiddenIds.has(ownPostId.toString())) return sentToGroupChat(askId, ownPostId)
+  const singleHidden = await findSingleHiddenGroupPosts(conversationId, card.chunkIds)
+  if (singleHidden.some(({ owner }) => !user._id.equals(owner))) throw sharingDisabled()
+  const deadline = Date.now() + UNPACK_TIMING.groupPostWaitMs
+  for (;;) {
+    await settleAbandonedGroupPosts(conversationId, chunkIds)
+    await releaseHiddenAuthorsPosts(conversationId, chunkIds, hiddenAuthors)
+    const existing = await waitForGroupPost(chunkIds, deadline)
+    if (existing?.ask.equals(askId)) return sentToGroupChat(askId, existing.message)
+    if (existing) return alreadyPosted(askId, existing.message)
+    if (userIsHidden) {
+      const giveSlotBack = takeGroupChatSlot(`${conversationId}:${user._id}`)
+      return postGroupCard(event, groupChat, user, askId, card, { giveSlotBack })
+    }
+    const posted = await tryToPostToGroupChat(event, groupChat, user, askId, card)
+    if (posted) return posted
+    if (Date.now() >= deadline) throw unpackFailed()
+  }
+}
+
+/**
+ * Shares a participant's Private Chat card to Group Chat under their pseudonym. It copies the card as they saw it,
+ * even if the saved explanation was rewritten since, so the room gets exactly what they chose to share.
+ */
+const sharePassage = async (
+  conversationId: string,
+  user,
+  messageId: string,
+  { transcriptPasscode, chatPasscode }: { transcriptPasscode?: string; chatPasscode?: string } = {}
+) => {
+  const event = await loadEventToPostIn(conversationId, user, transcriptPasscode)
+  if (isPreEventWindowOpen(event.conversation)) {
+    throw unpackError(httpStatus.CONFLICT, 'eventNotStarted', 'You can share to Group Chat once the event starts.')
+  }
+  // Starting an event again doesn't clear its end time, so only an inactive event with one has ended
+  if (event.conversation.endTime && !event.conversation.active) {
+    throw unpackError(
+      httpStatus.CONFLICT,
+      'eventEnded',
+      'This event has ended, so nothing more can be shared to Group Chat.'
+    )
+  }
+  const groupChat = await findGroupChat(event.conversation, chatPasscode)
+  const ask = await UnpackRequest.findOne({
+    conversation: event.conversation._id,
+    user: user._id,
+    mode: 'passage',
+    answerMessage: messageId
+  })
+  if (!ask) throw cardNotFound()
+  const [card] = await findMessages(
+    event.conversation._id,
+    'admin',
+    { _id: ask.answerMessage, bodyType: 'json', 'body.type': 'unpack_explanation' },
+    { lean: true }
+  )
+  if (!card) throw cardNotFound()
+  const { pseudonym } = resolveDisplayName(user, event.conversation)
+  const result = await postToGroupChat(
+    event,
+    groupChat,
+    user,
+    ask._id,
+    toGroupChatCard(card.body, event.assistant, pseudonym)
+  )
+  await saveShareOnCard(event.conversation._id, card._id, result)
+  return result
+}
+
+export default { previewPassage, sendPassage, sharePassage, finishPendingAsk, refreshSharingDisabled }

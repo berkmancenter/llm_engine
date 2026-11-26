@@ -184,6 +184,11 @@ messageSchema.index({ conversation: 1, hiddenByAdmin: 1 }, { partialFilterExpres
 // parentMessage + createdAt: getMessageReplies() and conversationMessages()'s reply-count
 // aggregate ($match on parentMessage), which had no index to use at all.
 messageSchema.index({ parentMessage: 1, createdAt: 1 })
+// Partial: only Unpacker cards are indexed; sharing one looks up the cards and posts that cover the same transcript chunks.
+messageSchema.index(
+  { conversation: 1, 'body.chunkIds': 1 },
+  { partialFilterExpression: { 'body.type': 'unpack_explanation' } }
+)
 /**
  * @typedef User
  */

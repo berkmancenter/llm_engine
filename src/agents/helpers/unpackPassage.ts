@@ -20,6 +20,8 @@ export const UNPACK_PASSAGE_MAX_CHARACTERS = 2000
 export const UNPACK_CONTEXT_BEFORE_SECONDS = 120
 export const UNPACK_CONTEXT_AFTER_SECONDS = 60
 const UNPACK_MAX_TERMS = 3
+// A shared card mirrored to a plain-text chat such as Zoom leads with the quote, so a long one would bury the explanation
+export const UNPACK_SHARED_QUOTE_MAX_CHARACTERS = 120
 
 // Transcript chunks the Unpacker can quote; a chunk saved with a structured body has no text to select
 export const TRANSCRIPT_TEXT_CHUNKS = { channels: TRANSCRIPT_CHANNEL, body: { $type: 'string' } }
@@ -81,6 +83,32 @@ export function toPlainText({
     sections.push(`Terms in this passage:\n${terms.map(({ term, text }) => `- ${term}: ${text}`).join('\n')}`)
   }
   return sections.join('\n\n')
+}
+
+function shortenQuote(quote: string) {
+  if (quote.length <= UNPACK_SHARED_QUOTE_MAX_CHARACTERS) return quote
+  // One character past the limit, so a word that ends exactly at the limit is kept whole
+  const cut = quote.slice(0, UNPACK_SHARED_QUOTE_MAX_CHARACTERS + 1)
+  const lastSpace = cut.lastIndexOf(' ')
+  const kept = lastSpace > 0 ? cut.slice(0, lastSpace) : quote.slice(0, UNPACK_SHARED_QUOTE_MAX_CHARACTERS)
+  return `${kept.trimEnd()}...`
+}
+
+/** A shared card for chat platforms that show plain text only. The platform adds the sharer's name in front. */
+export function toSharedChatText(
+  {
+    quote,
+    whatTheyreSaying,
+    whyItMatters
+  }: Pick<UnpackPassageSections, 'whatTheyreSaying' | 'whyItMatters'> & { quote: string },
+  botName: string
+): string {
+  return [
+    `Sharing this explanation from ${botName}:`,
+    `"${shortenQuote(quote)}"`,
+    `What they're saying: ${whatTheyreSaying}`,
+    `Why it matters here: ${whyItMatters}`
+  ].join('\n\n')
 }
 
 function sentenceSpans(text: string) {

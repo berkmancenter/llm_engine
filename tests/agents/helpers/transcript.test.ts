@@ -3,6 +3,7 @@ import transcript, { TOPIC_TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/age
 import rag, { TRANSCRIPT_COLLECTION_PREFIX } from '../../../src/agents/helpers/rag.js'
 import Conversation from '../../../src/models/conversation.model.js'
 import Message from '../../../src/models/message.model.js'
+import UnpackGroupPost from '../../../src/models/unpackGroupPost.model.js'
 import UnpackPassageExplanation from '../../../src/models/unpackPassageExplanation.model.js'
 import UnpackRequest from '../../../src/models/unpackRequest.model.js'
 
@@ -1273,6 +1274,7 @@ describe('transcript', () => {
       // The fake conversation ID isn't an ObjectId, so the Unpacker cleanup would fail to cast it
       jest.spyOn(UnpackRequest, 'deleteMany').mockResolvedValue({} as any)
       jest.spyOn(UnpackPassageExplanation, 'deleteMany').mockResolvedValue({} as any)
+      jest.spyOn(UnpackGroupPost, 'deleteMany').mockResolvedValue({} as any)
     })
 
     afterEach(() => {
@@ -1282,6 +1284,7 @@ describe('transcript', () => {
       messageDeleteManySpy.mockRestore()
       jest.mocked(UnpackRequest.deleteMany).mockRestore()
       jest.mocked(UnpackPassageExplanation.deleteMany).mockRestore()
+      jest.mocked(UnpackGroupPost.deleteMany).mockRestore()
     })
 
     it('should clear only transcript content from vector store and preserve metadata', async () => {
@@ -1360,6 +1363,7 @@ describe('transcript', () => {
       // The fake conversation ID isn't an ObjectId, so the Unpacker cleanup would fail to cast it
       jest.spyOn(UnpackRequest, 'deleteMany').mockResolvedValue({} as any)
       jest.spyOn(UnpackPassageExplanation, 'deleteMany').mockResolvedValue({} as any)
+      jest.spyOn(UnpackGroupPost, 'deleteMany').mockResolvedValue({} as any)
     })
 
     afterEach(() => {
@@ -1369,6 +1373,7 @@ describe('transcript', () => {
       messageDeleteManySpy.mockRestore()
       jest.mocked(UnpackRequest.deleteMany).mockRestore()
       jest.mocked(UnpackPassageExplanation.deleteMany).mockRestore()
+      jest.mocked(UnpackGroupPost.deleteMany).mockRestore()
     })
 
     it('should delete entire per-conversation collection from vector store including metadata', async () => {

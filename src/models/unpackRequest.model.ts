@@ -9,7 +9,7 @@ const unpackRequestSchema = new mongoose.Schema<IUnpackRequest>(
     user: { type: mongoose.SchemaTypes.ObjectId, ref: 'BaseUser', required: true },
     mode: { type: String, enum: UNPACK_MODES, required: true },
     status: { type: String, enum: UNPACK_REQUEST_STATUSES, required: true },
-    destination: { type: String, enum: UNPACK_DESTINATIONS },
+    destinations: { type: [{ type: String, enum: UNPACK_DESTINATIONS }], default: [] },
     chunkIds: { type: [mongoose.SchemaTypes.ObjectId], ref: 'Message', default: [] },
     quote: { type: String, default: '' },
     passageKey: { type: String },

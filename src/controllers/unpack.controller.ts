@@ -20,4 +20,13 @@ const sendPassage = catchAsync(async (req, res) => {
   res.status(httpStatus.ACCEPTED).send(result)
 })
 
-export { previewPassage, sendPassage }
+const sharePassage = catchAsync(async (req, res) => {
+  const { messageId, transcriptPasscode, chatPasscode } = req.body
+  const result = await unpackService.sharePassage(req.params.conversationId, req.user, messageId, {
+    transcriptPasscode,
+    chatPasscode
+  })
+  res.status(httpStatus.ACCEPTED).send(result)
+})
+
+export { previewPassage, sendPassage, sharePassage }

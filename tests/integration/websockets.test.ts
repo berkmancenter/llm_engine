@@ -414,6 +414,17 @@ describe('WebSocket events for hidden messages', () => {
     })
   })
 
+  describe('deleting messages', () => {
+    test('message:deleted carries ids only and reaches the channel rooms, the conversation room and the admin room', async () => {
+      await websocketGateway.broadcastMessagesDeleted(conversationId, [s.authorMsg._id.toString()], ['chat'])
+
+      const [deletedCall] = calls('message:deleted')
+      expect(deletedCall[2]).toEqual({ messageIds: [s.authorMsg._id.toString()] })
+      expect(deletedCall[3]).toEqual(['chat'])
+      expect(deletedCall[4]).toEqual([conversationId, adminRoom])
+    })
+  })
+
   describe('conversation scoping', () => {
     test('hide-all announces only this conversation, with only its message ids, to its own rooms', async () => {
       await moderationService.hideUserMessages(conversationId, s.author._id, s.admin)

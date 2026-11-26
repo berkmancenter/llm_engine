@@ -293,12 +293,16 @@ export interface IAgentIntroduction {
 // Later Unpacker modes and destinations are added to these lists, never renamed
 export const UNPACK_MODES = ['lastMinute', 'passage'] as const
 export type UnpackMode = (typeof UNPACK_MODES)[number]
-export const UNPACK_DESTINATIONS = ['privateChat'] as const
+export const UNPACK_DESTINATIONS = ['privateChat', 'groupChat'] as const
 export type UnpackDestination = (typeof UNPACK_DESTINATIONS)[number]
 export const UNPACK_REQUEST_STATUSES = ['previewed', 'sent'] as const
 export type UnpackRequestStatus = (typeof UNPACK_REQUEST_STATUSES)[number]
 export const UNPACK_EXPLANATION_STATUSES = ['generating', 'ready'] as const
 export type UnpackExplanationStatus = (typeof UNPACK_EXPLANATION_STATUSES)[number]
+export const UNPACK_GROUP_POST_STATUSES = ['posting', 'posted'] as const
+// JSON message bodies clients draw as Unpacker cards, so only the server may post them
+export const UNPACK_CARD_TYPES = ['unpack_explanation', 'catch_up_summary']
+export type UnpackGroupPostStatus = (typeof UNPACK_GROUP_POST_STATUSES)[number]
 
 // Offsets count UTF-16 code units (JavaScript string indexes) into each chunk's saved body
 export interface UnpackRange {
@@ -353,8 +357,8 @@ export interface IUnpackRequest {
   user: mongoose.Types.ObjectId
   mode: UnpackMode
   status: UnpackRequestStatus
-  // A passage ask can pick its destination while the explanation is still being written
-  destination?: UnpackDestination
+  // Private Chat is added before posting, so it can wait here while the explanation is written; Group Chat after
+  destinations: UnpackDestination[]
   chunkIds: mongoose.Types.ObjectId[]
   quote: string
   passageKey?: string
@@ -381,6 +385,18 @@ export interface IUnpackPassageExplanation extends Partial<UnpackPassageSections
   updatedAt?: Date
 }
 
+// Saved before the post, so a second post sharing any chunk is refused; `posting` until the post is saved
+export interface IUnpackGroupPost {
+  _id: mongoose.Types.ObjectId
+  conversation: mongoose.Types.ObjectId
+  // Lets a participant who shares their own card again get their own post back instead of alreadyPosted
+  ask: mongoose.Types.ObjectId
+  chunkIds: mongoose.Types.ObjectId[]
+  message: mongoose.Types.ObjectId
+  status: UnpackGroupPostStatus
+  createdAt?: Date
+}
+
 // A row the AI model has finished: the only kind a card or preview can be built from
 export type ReadyUnpackPassageExplanation = IUnpackPassageExplanation &
   UnpackPassageSections & { status: 'ready'; range: IUnpackStoredRange; passage: { start: Date; end: Date } }
@@ -404,6 +420,12 @@ export interface UnpackExplanation {
   terms: UnpackTerm[]
   headline?: string
   range?: UnpackRange
+  // Only on Group Chat posts: says who shared it and that the explanation is the assistant's
+  footer?: string
+  // Only on Private Chat cards, while a Group Chat post a moderator hid on its own covers part of the passage
+  sharingDisabled?: boolean
+  // Only on Private Chat cards: the result of the participant's latest share, so it survives a reload
+  groupChatShare?: { status: 'sent'; messageId: string } | { status: 'alreadyPosted'; messageId: string; text: string }
   // plain-text copy for chat history and clients that can't render the card
   text: string
 }

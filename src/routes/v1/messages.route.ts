@@ -62,7 +62,10 @@ const router = express.Router()
  *               items:
  *                 $ref: '#/components/schemas/Message'
  *       400:
- *         description: Bad request - conversation locked or validation error
+ *         description: >-
+ *           Bad request - conversation locked or validation error. Also refused: a `json` body whose `type` is an
+ *           Unpacker card (`unpack_explanation` or `catch_up_summary`), since clients draw
+ *           those as cards and only the server may post them.
  *         content:
  *           application/json:
  *             schema:

@@ -286,7 +286,8 @@ components:
       type: object
       description: >-
         Message body (bodyType "json") the event assistant posts with an explanation of a passage a
-        participant highlighted. It comes from the send endpoint.
+        participant highlighted. It comes from the send endpoint (Private Chat) or the share endpoint
+        (Group Chat). A Group Chat post never names the participant who shared it.
       required:
         - type
         - mode
@@ -307,7 +308,7 @@ components:
           enum: [passage]
         destination:
           type: string
-          enum: [privateChat]
+          enum: [privateChat, groupChat]
         chunkIds:
           type: array
           description: IDs of the transcript messages that were explained, oldest first.
@@ -343,9 +344,43 @@ components:
           description: Short title for sharing the explanation with the room. Passage cards only.
         range:
           $ref: '#/components/schemas/UnpackSelection'
+        footer:
+          type: string
+          description: >-
+            Group Chat posts only. Says where the post came from. A participant's share reads "<pseudonym> shared
+            this explanation from <bot name>." Show it as written; other kinds of post will use other text.
+        sharingDisabled:
+          type: boolean
+          description: >-
+            Private Chat cards only, and only present when true. The card can't be shared to Group Chat, because a
+            hidden Group Chat post covers part of its passage. Never set on the card that made that post. Cleared
+            when the post is unhidden. Not sent live; clients see changes when messages load.
+        groupChatShare:
+          type: object
+          description: >-
+            Private Chat cards only, once the participant has shared the card to Group Chat. The result of their
+            latest share, saved so it survives a reload. Never on a Group Chat post.
+          required: [status, messageId]
+          properties:
+            status:
+              type: string
+              enum: [sent, alreadyPosted]
+              description: >-
+                sent, the card is in Group Chat. alreadyPosted, another post already covered this passage, so
+                nothing new was posted.
+            messageId:
+              type: string
+              description: ID of the Group Chat post, the same as the share call's messageId.
+            text:
+              type: string
+              description: >-
+                Present when status is alreadyPosted. The text to show, "A post about this part of the talk is
+                already in Group Chat."
         text:
           type: string
-          description: Plain-text version of all sections, for chat history and clients that can't render the card.
+          description: >-
+            Plain-text version of all sections, for chat history and clients that can't render the card. Ends with
+            the footer when there is one.
 
     CatchUpSummary:
       type: object
@@ -580,6 +615,30 @@ components:
           type: string
           description: ID of the posted card, when status is sent.
 
+    UnpackShareResult:
+      type: object
+      required:
+        - askId
+        - status
+        - messageId
+      properties:
+        askId:
+          type: string
+        status:
+          type: string
+          enum: [sent, alreadyPosted]
+          description: >-
+            sent, the card was posted to Group Chat, now or by an earlier share of the same card. alreadyPosted, a
+            Group Chat post already covers part of this passage, so nothing was posted.
+        messageId:
+          type: string
+          description: ID of the Group Chat post, the new one when sent and the existing one when alreadyPosted.
+        text:
+          type: string
+          description: >-
+            Present when status is alreadyPosted. The text to show, "A post about this part of the talk is already
+            in Group Chat."
+
     UnpackError:
       type: object
       properties:
@@ -591,9 +650,15 @@ components:
           type: string
           enum:
             - rateLimited
+            - groupChatRateLimited
             - unpackerOff
             - noAssistant
             - noPrivateChat
+            - noGroupChat
+            - cardNotFound
+            - eventNotStarted
+            - eventEnded
+            - sharingDisabled
             - eventLocked
             - chunkNotInTranscript
             - offsetPastEnd
@@ -605,8 +670,14 @@ components:
             Why the request was refused. rateLimited (429), the participant started too many new
             explanations in the last minute; answers from a saved explanation don't count.
             unpackerOff (403), the event's unpacker feature is off. noAssistant (409), the event has
-            no assistant. wrongPasscode (400), the transcript has a passcode and the request did not
-            give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
+            no assistant. wrongPasscode (400), the transcript (or, for a share, Group Chat) has a
+            passcode and the request did not give it. noPrivateChat (409), the participant has no Private Chat with the assistant.
+            groupChatRateLimited (429), the participant already posted to Group Chat in this event in the last
+            2 minutes. noGroupChat (409), the event has no Group Chat. cardNotFound (404), the message to share
+            is not one of the participant's Private Chat cards in this event. eventNotStarted (409), a share was
+            sent during the pre-event window, when participants can join before the event starts. eventEnded
+            (409), a share was sent after the event ended. sharingDisabled (409), a hidden Group Chat post covers
+            part of this passage, so it can't be shared while that post stays hidden.
             eventLocked (409), the event is locked, so no card can be posted.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection

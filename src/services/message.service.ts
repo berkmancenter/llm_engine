@@ -5,7 +5,7 @@ import { Message, Conversation, User } from '../models/index.js'
 import schedule from '../jobs/schedule.js'
 import ApiError from '../utils/ApiError.js'
 import websocketGateway from '../websockets/websocketGateway.js'
-import { IAgent, IMessage, AgentMessageActions } from '../types/index.types.js'
+import { IAgent, IMessage, AgentMessageActions, UNPACK_CARD_TYPES } from '../types/index.types.js'
 import authChannels from '../utils/authChannels.js'
 import assertMembership from '../utils/assertMembership.js'
 import channelService from './channel.service.js'
@@ -92,9 +92,10 @@ const fetchConversation = async (messageBody, user) => {
  * @param {Object} messageBody
  * @param {User} user
  * @param {Conversation} conversation
+ * @param {Object} options - `serverCard`: the server built this message, so it may choose its ID like an agent
  * @returns {Promise<Message>}
  */
-const createMessage = async (messageBody, user, conversation) => {
+const createMessage = async (messageBody, user, conversation, { serverCard = false } = {}) => {
   const activePseudo = resolveDisplayName(user, conversation)
   if (!messageBody.body) throw new ApiError(httpStatus.BAD_REQUEST, 'Message body is required')
 
@@ -104,8 +105,8 @@ const createMessage = async (messageBody, user, conversation) => {
   }
 
   const message = await Message.create({
-    // The websocket path passes client bodies through unvalidated, so only agents may choose an ID
-    ...(user.agentType && messageBody._id !== undefined && { _id: messageBody._id }),
+    // The websocket path passes client bodies through unvalidated, so only agents and the server may choose an ID
+    ...((user.agentType || serverCard) && messageBody._id !== undefined && { _id: messageBody._id }),
     body: messageBody.body,
     ...(messageBody.bodyType !== undefined && { bodyType: messageBody.bodyType }),
     ...(messageBody.createdAt !== undefined && { createdAt: messageBody.createdAt }),
@@ -362,9 +363,36 @@ const handleFeedbackMessage = async (message, user, conversation) => {
  * @param {User} user
  * @returns {Promise<[Message]>}
  */
-const newMessageHandler = async (message, user, request: string | null = null) => {
+// Clients draw a card from an object body whatever its bodyType, and from a JSON string body when bodyType is json
+const isUnpackCard = (message) => {
+  let { body } = message
+  if (message.bodyType === 'json' && typeof body === 'string') {
+    try {
+      body = JSON.parse(body)
+    } catch {
+      return false
+    }
+  }
+  return UNPACK_CARD_TYPES.includes(body?.type)
+}
+
+/**
+ * @param {Object} options - `serverCard`: an Unpacker card the server built for this user, such as a share to Group
+ *   Chat. Clients can't pass it, so it is the only way a non-agent's message can be a card. Agents don't evaluate it:
+ *   it is the assistant's explanation, not something the user wrote.
+ */
+const newMessageHandler = async (
+  message,
+  user,
+  request: string | null = null,
+  { serverCard = false }: { serverCard?: boolean } = {}
+) => {
   if (!user.agentType) {
     await assertMembership(user, message.conversation)
+  }
+  // `fromAgent` comes from the client's own message, so only the sender's real account says who may post a card
+  if (!user.agentType && !serverCard && isUnpackCard(message)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Only the server can post Unpacker cards.')
   }
 
   // Check if this is a feedback message
@@ -395,7 +423,7 @@ const newMessageHandler = async (message, user, request: string | null = null) =
     owner: user._id
   }
   // Hidden messages stay out of every model's context, so agents neither evaluate nor answer them.
-  if (conversation.enableAgents && !hiddenOnArrival) {
+  if (conversation.enableAgents && !hiddenOnArrival && !serverCard) {
     // process evaluations and check for any rejections. Process in priority order
     const sortedAgents = conversation.agents.sort((a, b) => a.priority - b.priority)
     for (const agent of sortedAgents) {
@@ -430,7 +458,7 @@ const newMessageHandler = async (message, user, request: string | null = null) =
       })
     }
 
-    sentMessage = await createMessage(messageWithObjectChannels, user, conversation)
+    sentMessage = await createMessage(messageWithObjectChannels, user, conversation, { serverCard })
     messages.push(sentMessage)
     sentMessage.owner = user._id
 

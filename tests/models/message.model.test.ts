@@ -26,4 +26,16 @@ describe('Message model indexes', () => {
     const indexes = await Message.collection.indexes()
     expect(indexes).toEqual(expect.arrayContaining([expect.objectContaining({ key: { parentMessage: 1, createdAt: 1 } })]))
   })
+
+  it('has an index over only Unpacker cards for finding the ones that cover a transcript chunk', async () => {
+    const indexes = await Message.collection.indexes()
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: { conversation: 1, 'body.chunkIds': 1 },
+          partialFilterExpression: { 'body.type': 'unpack_explanation' }
+        })
+      ])
+    )
+  })
 })

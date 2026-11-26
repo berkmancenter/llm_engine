@@ -28,3 +28,4 @@ export { default as DocumentArtifact } from './artifact.model/documentArtifact.j
 export { default as ConceptGraphArtifact } from './artifact.model/conceptGraphArtifact.js'
 export { default as UnpackRequest } from './unpackRequest.model.js'
 export { default as UnpackPassageExplanation } from './unpackPassageExplanation.model.js'
+export { default as UnpackGroupPost } from './unpackGroupPost.model.js'

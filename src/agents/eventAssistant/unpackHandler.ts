@@ -325,7 +325,7 @@ export default async function handleUnpackRequest(agent, userMessage): Promise<A
       user: userMessage.owner,
       mode: request.mode,
       status: 'sent',
-      destination: request.destination,
+      destinations: [request.destination],
       chunkIds,
       quote,
       requestMessage: userMessage._id,
