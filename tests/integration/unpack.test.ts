@@ -31,6 +31,7 @@ const { Agent, Channel, Conversation, Message, UnpackGroupPost, UnpackPassageExp
 const { default: websocketGateway } = await import('../../src/websockets/websocketGateway.js')
 const { default: logger } = await import('../../src/config/logger.js')
 const { default: messageService } = await import('../../src/services/message.service.js')
+const { default: moderationService } = await import('../../src/services/moderation.service.js')
 const { default: schedule } = await import('../../src/jobs/schedule.js')
 const { default: JobHandlers } = await import('../../src/jobs/handlers/index.js')
 const { UNPACK_GROUP_CHAT_POST_WINDOW_MS, UNPACK_MODEL_CALLS_PER_MINUTE, UNPACK_TIMING, settleBackgroundUnpacks } =
@@ -1774,7 +1775,8 @@ describe('POST /v1/unpack/:conversationId/share', () => {
     const { quoted } = await seedTranscript(conversation)
     const cardId = await cardFor(conversation, selectionIn(quoted))
     await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { hiddenAuthors: participant._id } })
-    const first = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+    const first = await share(conversation, cardId)
+    expect(first.body).toMatchObject({ status: 'sent' })
     const realNow = Date.now
     jest.spyOn(Date, 'now').mockImplementation(() => realNow() + UNPACK_GROUP_CHAT_POST_WINDOW_MS + SECOND)
 
@@ -1782,6 +1784,91 @@ describe('POST /v1/unpack/:conversationId/share', () => {
 
     expect(again.body).toEqual(first.body)
     expect(await cardsIn(groupChat)).toHaveLength(1)
+  })
+
+  it('stops blocking the passage once a moderator hides every post by its author, and still gives that author their post back', async () => {
+    const { conversation, berkie } = await createEvent()
+    await addPrivateChat(conversation, berkie, userTwo)
+    const { quoted } = await seedTranscript(conversation)
+    const cardId = await cardFor(conversation, selectionIn(quoted))
+    const otherCard = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
+    const first = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+    await Conversation.updateOne({ _id: conversation._id }, { $addToSet: { hiddenAuthors: participant._id } })
+
+    const other = await share(conversation, otherCard, userTwoAccessToken).expect(httpStatus.ACCEPTED)
+
+    expect(other.body.status).toBe('sent')
+    expect(other.body.messageId).not.toBe(first.body.messageId)
+    expect(await cardsIn(groupChat)).toHaveLength(2)
+    const [row] = await UnpackGroupPost.find()
+    expect(row.message.toString()).toBe(other.body.messageId)
+    const again = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+    expect(again.body).toEqual(first.body)
+    expect(await cardsIn(groupChat)).toHaveLength(2)
+  })
+
+  describe('when a moderator hides just one Group Chat post', () => {
+    const sharingDisabledMessage = 'Sharing options are not enabled for this post.'
+    const moderator = async () => (await User.findById(userOne._id))!
+    const cardBody = async (cardId: string) => (await Message.findById(cardId))!.body
+
+    beforeEach(() => {
+      jest.spyOn(websocketGateway, 'broadcastMessagesHidden').mockResolvedValue(undefined)
+      jest.spyOn(websocketGateway, 'broadcastHiddenNotice').mockResolvedValue(undefined)
+    })
+
+    it('refuses to share any card whose passage overlaps it, marks those cards, and lifts both on unhide', async () => {
+      const { conversation, berkie } = await createEvent()
+      await addPrivateChat(conversation, berkie, userTwo)
+      const { quoted } = await seedTranscript(conversation)
+      const cardId = await cardFor(conversation, selectionIn(quoted))
+      const otherCard = await cardFor(conversation, selectionIn(quoted, 'error budget'), userTwoAccessToken)
+      const first = await share(conversation, cardId).expect(httpStatus.ACCEPTED)
+
+      await moderationService.hideMessage(first.body.messageId, await moderator())
+
+      expect(await cardBody(otherCard)).toMatchObject({ sharingDisabled: true })
+      expect(await cardBody(cardId)).not.toHaveProperty('sharingDisabled')
+      const refused = await share(conversation, otherCard, userTwoAccessToken).expect(httpStatus.CONFLICT)
+      expect(refused.body).toMatchObject({ reason: 'sharingDisabled', message: sharingDisabledMessage })
+      expect(await cardsIn(groupChat)).toHaveLength(1)
+      expect((await share(conversation, cardId).expect(httpStatus.ACCEPTED)).body).toEqual(first.body)
+
+      await moderationService.unhideMessage(first.body.messageId, await moderator())
+
+      expect(await cardBody(otherCard)).not.toHaveProperty('sharingDisabled')
+      const afterUnhide = await share(conversation, otherCard, userTwoAccessToken).expect(httpStatus.ACCEPTED)
+      expect(afterUnhide.body).toMatchObject({ status: 'alreadyPosted', messageId: first.body.messageId })
+    })
+
+    it('marks a card made while the post is hidden, and never copies the mark to Group Chat', async () => {
+      const { conversation, berkie } = await createEvent()
+      await addPrivateChat(conversation, berkie, userTwo)
+      const { quoted } = await seedTranscript(conversation)
+      const first = await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+      await moderationService.hideMessage(first.body.messageId, await moderator())
+
+      const lateCard = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
+
+      expect(await cardBody(lateCard)).toMatchObject({ sharingDisabled: true })
+      const [post] = await cardsIn(groupChat)
+      expect(post.body).not.toHaveProperty('sharingDisabled')
+    })
+
+    it("blocks the passage even when the post's author was also hidden before they shared", async () => {
+      const { conversation, berkie } = await createEvent()
+      await addPrivateChat(conversation, berkie, userTwo)
+      const { quoted } = await seedTranscript(conversation)
+      const otherCard = await cardFor(conversation, selectionIn(quoted), userTwoAccessToken)
+      await moderationService.hideUserMessages(conversation._id, participant._id, await moderator())
+      const first = await share(conversation, await cardFor(conversation, selectionIn(quoted))).expect(httpStatus.ACCEPTED)
+
+      await moderationService.hideMessage(first.body.messageId, await moderator())
+
+      const refused = await share(conversation, otherCard, userTwoAccessToken).expect(httpStatus.CONFLICT)
+      expect(refused.body.reason).toBe('sharingDisabled')
+      expect(await cardBody(otherCard)).toMatchObject({ sharingDisabled: true })
+    })
   })
 
   it("refuses a card that isn't the participant's own", async () => {

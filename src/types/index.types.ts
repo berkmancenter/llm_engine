@@ -422,6 +422,8 @@ export interface UnpackExplanation {
   range?: UnpackRange
   // Only on Group Chat posts: says who shared it and that the explanation is the assistant's
   footer?: string
+  // Only on Private Chat cards, while a Group Chat post a moderator hid on its own covers part of the passage
+  sharingDisabled?: boolean
   // Only on Private Chat cards: the result of the participant's latest share, so it survives a reload
   groupChatShare?: { status: 'sent'; messageId: string } | { status: 'alreadyPosted'; messageId: string; text: string }
   // plain-text copy for chat history and clients that can't render the card

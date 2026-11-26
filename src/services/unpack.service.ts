@@ -87,6 +87,10 @@ const unpackFailed = () =>
 const cardNotFound = () =>
   unpackError(httpStatus.NOT_FOUND, 'cardNotFound', 'That explanation is not one of your Private Chat cards in this event.')
 
+// Worded so a participant can't tell a moderator hid the post
+const sharingDisabled = () =>
+  unpackError(httpStatus.CONFLICT, 'sharingDisabled', 'Sharing options are not enabled for this post.')
+
 const transcriptGone = () =>
   unpackError(httpStatus.BAD_REQUEST, 'chunkNotInTranscript', 'The transcript this passage quotes was deleted.')
 
@@ -425,9 +429,12 @@ async function postAsk(event: UnpackEvent, askId: mongoose.Types.ObjectId, expla
     { new: true }
   )
   if (!ask) return
+  const card = toCard(explanation, 'privateChat')
+  // eslint-disable-next-line no-use-before-define
+  if (await isSharingDisabled(ask.conversation, card)) card.sharingDisabled = true
   try {
     await postToPrivateChat(event, ask.user, {
-      message: toCard(explanation, 'privateChat'),
+      message: card,
       messageType: 'json',
       messageId: answerId
     })
@@ -715,7 +722,7 @@ const finishPendingAsk = async (askId: string, attempt: number) => {
 // The post carries the participant's name, so the footer says the words are the assistant's, not theirs
 function toGroupChatCard(card: UnpackExplanation, assistant, pseudonym: string): UnpackExplanation {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { groupChatShare, ...shared } = card
+  const { groupChatShare, sharingDisabled: _sharingDisabled, ...shared } = card
   const footer = `${pseudonym} shared this explanation from ${assistant.agentConfig.botName}.`
   return { ...shared, destination: 'groupChat', footer, text: `${card.text}\n\n${footer}` }
 }
@@ -777,6 +784,97 @@ async function settleAbandonedGroupPosts(conversationId: mongoose.Types.ObjectId
       await UnpackGroupPost.deleteOne({ _id: row._id, status: 'posting' })
     }
   }
+}
+
+/**
+ * Removes the rows of finished overlapping posts whose author a moderator has since hidden with hide-all, so those
+ * posts stop blocking the passage, like a share by an already-hidden author that saves no row. A post also hidden on
+ * its own keeps its row, since that hide blocks the passage.
+ */
+async function releaseHiddenAuthorsPosts(
+  conversationId: mongoose.Types.ObjectId,
+  chunkIds: mongoose.Types.ObjectId[],
+  hiddenAuthors: Set<string>
+) {
+  if (hiddenAuthors.size === 0) return
+  const rows = await UnpackGroupPost.find({ chunkIds: { $in: chunkIds }, status: 'posted' })
+    .select('message')
+    .lean()
+  if (rows.length === 0) return
+  const released = await Message.find({
+    _id: { $in: rows.map(({ message }) => message) },
+    conversation: conversationId,
+    owner: { $in: [...hiddenAuthors] },
+    hiddenByAdmin: { $ne: true }
+  })
+    .select('_id')
+    .lean()
+  if (released.length === 0) return
+  await UnpackGroupPost.deleteMany({ status: 'posted', message: { $in: released.map(({ _id }) => _id) } })
+}
+
+/** Group Chat Unpacker posts a moderator hid on their own that cover any of these chunks. */
+function findSingleHiddenGroupPosts(conversationId: mongoose.Types.ObjectId, chunkIds: string[]) {
+  return Message.find({
+    conversation: conversationId,
+    bodyType: 'json',
+    'body.type': 'unpack_explanation',
+    'body.destination': 'groupChat',
+    hiddenByAdmin: true,
+    'body.chunkIds': { $in: chunkIds }
+  })
+    .select('_id body.chunkIds')
+    .lean()
+}
+
+/**
+ * Whether a card overlaps a post hidden on its own. The card that made the post doesn't count: its author still sees
+ * their post, so marking their card would tell them it was hidden.
+ */
+function blocksCard(hiddenPosts, card: UnpackExplanation) {
+  const ownPost = card.groupChatShare?.status === 'sent' ? card.groupChatShare.messageId : null
+  return hiddenPosts.some(
+    ({ _id, body }) => _id.toString() !== ownPost && body.chunkIds.some((id) => card.chunkIds.includes(id))
+  )
+}
+
+async function isSharingDisabled(conversationId: mongoose.Types.ObjectId, card: UnpackExplanation) {
+  return blocksCard(await findSingleHiddenGroupPosts(conversationId, card.chunkIds), card)
+}
+
+/**
+ * Marks the Private Chat cards that overlap a Group Chat post after a moderator hides or unhides it on its own, and
+ * clears the mark once no hidden post overlaps a card. Does nothing for any other message.
+ */
+async function refreshSharingDisabled(messageId: mongoose.Types.ObjectId | string) {
+  const post = await Message.findOne({
+    _id: messageId,
+    bodyType: 'json',
+    'body.type': 'unpack_explanation',
+    'body.destination': 'groupChat'
+  })
+    .select('conversation body.chunkIds')
+    .lean<{ conversation: mongoose.Types.ObjectId; body: UnpackExplanation }>()
+  if (!post) return
+  const conversationId = post.conversation
+  const cards = await Message.find({
+    conversation: conversationId,
+    bodyType: 'json',
+    'body.type': 'unpack_explanation',
+    'body.destination': 'privateChat',
+    'body.chunkIds': { $in: post.body.chunkIds }
+  })
+    .select('body.chunkIds body.groupChatShare')
+    .lean<{ _id: mongoose.Types.ObjectId; body: UnpackExplanation }[]>()
+  if (cards.length === 0) return
+  const hiddenPosts = await findSingleHiddenGroupPosts(
+    conversationId,
+    cards.flatMap(({ body }) => body.chunkIds)
+  )
+  const blocked = cards.filter(({ body }) => blocksCard(hiddenPosts, body))
+  const open = cards.filter((card) => !blocked.includes(card))
+  await Message.updateMany({ _id: { $in: blocked.map(({ _id }) => _id) } }, { $set: { 'body.sharingDisabled': true } })
+  await Message.updateMany({ _id: { $in: open.map(({ _id }) => _id) } }, { $unset: { 'body.sharingDisabled': 1 } })
 }
 
 /** Takes this participant's one Group Chat post for the window, and returns a function that gives it back. */
@@ -883,22 +981,28 @@ async function tryToPostToGroupChat(event: UnpackEvent, groupChat, user, askId: 
 }
 
 /**
- * Posts a card to Group Chat unless a post already covers any of its chunks. A post by a participant a moderator has
- * hidden is hidden from the room like their other messages, so it saves no row: it shouldn't stop anyone else posting.
+ * Posts a card to Group Chat unless a post already covers any of its chunks. A post a moderator hid on its own blocks
+ * the passage until it is unhidden. A post hidden only by hiding every post by its author blocks nobody: a share by a
+ * hidden author saves no row, and a row saved before the hide is removed here.
  */
 async function postToGroupChat(event: UnpackEvent, groupChat, user, askId: mongoose.Types.ObjectId, card) {
   const conversationId = event.conversation._id
   const chunkIds = card.chunkIds.map((id) => new mongoose.Types.ObjectId(id))
-  const { hiddenAuthors } = await loadHideContext(conversationId)
+  const { hiddenAuthors, hiddenIds } = await loadHideContext(conversationId)
+  const userIsHidden = hiddenAuthors.has(user._id.toString())
+  const ownPostId = groupChatPostId(askId)
+  // A hidden post may have no row, so its author's repeat share finds it by its ID instead
+  if (hiddenIds.has(ownPostId.toString())) return sentToGroupChat(askId, ownPostId)
+  const singleHidden = await findSingleHiddenGroupPosts(conversationId, card.chunkIds)
+  if (singleHidden.some(({ _id }) => !_id.equals(ownPostId))) throw sharingDisabled()
   const deadline = Date.now() + UNPACK_TIMING.groupPostWaitMs
   for (;;) {
     await settleAbandonedGroupPosts(conversationId, chunkIds)
+    await releaseHiddenAuthorsPosts(conversationId, chunkIds, hiddenAuthors)
     const existing = await waitForGroupPost(chunkIds, deadline)
     if (existing?.ask.equals(askId)) return sentToGroupChat(askId, existing.message)
     if (existing) return alreadyPosted(askId, existing.message)
-    if (hiddenAuthors.has(user._id.toString())) {
-      const postId = groupChatPostId(askId)
-      if (await cardSaved(conversationId, postId)) return sentToGroupChat(askId, postId)
+    if (userIsHidden) {
       const giveSlotBack = takeGroupChatSlot(`${conversationId}:${user._id}`)
       return postGroupCard(event, groupChat, user, askId, card, { giveSlotBack })
     }
@@ -957,4 +1061,4 @@ const sharePassage = async (
   return result
 }
 
-export default { previewPassage, sendPassage, sharePassage, finishPendingAsk }
+export default { previewPassage, sendPassage, sharePassage, finishPendingAsk, refreshSharingDisabled }

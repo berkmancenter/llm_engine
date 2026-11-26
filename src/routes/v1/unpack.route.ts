@@ -141,10 +141,12 @@ router
  *       Posts a copy of one of the participant's own `unpack_explanation` cards from Private Chat to Group Chat,
  *       as the participant's own message under their pseudonym (`fromAgent` is false). The copy is the card as
  *       the participant saw it, with `destination: groupChat` and a `footer` saying the explanation came from the
- *       assistant. Agents don't evaluate or answer it. If a moderator has hidden the participant, the post is
- *       hidden from the room like their other messages, the participant still sees it, and it doesn't stop
- *       anyone else posting the passage. Clearing the transcript deletes these posts, and open clients get a
- *       `message:deleted` event with their IDs. Group Chat never gets two posts about the same
+ *       assistant. Agents don't evaluate or answer it. If a moderator hides every post by the participant,
+ *       before or after they share, the post is hidden from the room, the participant still sees it, and it
+ *       doesn't stop anyone else posting the passage. If a moderator hides just that post, nobody else can share
+ *       a passage it covers until it is unhidden: those shares are refused with sharingDisabled (409), and
+ *       their cards carry `sharingDisabled: true`. Clearing the transcript deletes these posts, and open clients
+ *       get a `message:deleted` event with their IDs. Group Chat never gets two posts about the same
  *       transcript: if a post already covers any chunk of this passage, nothing is posted, the answer is
  *       `status: alreadyPosted` with that post's message ID and the `text` to show. If that post is still being
  *       made, the call waits for it, and answers unpackFailed (503) if it isn't done in 10 seconds. Every 202

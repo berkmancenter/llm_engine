@@ -5,6 +5,7 @@ import { Conversation, Message, ModerationEvent, User } from '../models/index.js
 import ApiError from '../utils/ApiError.js'
 import { roleRights } from '../config/roles.js'
 import websocketGateway from '../websockets/websocketGateway.js'
+import unpackService from './unpack.service.js'
 import { HIDEABLE_CHANNELS, HideContext, inHideableChannel, loadHideContext } from '../utils/messageVisibility.js'
 
 /**
@@ -119,6 +120,14 @@ const setMessageHidden = async (messageId, requester, hidden: boolean, reason?: 
       },
       () => Message.updateOne({ _id: message._id }, { $set: { hiddenByAdmin: wasFlagged } })
     )
+  }
+  if (wasFlagged !== hidden) {
+    try {
+      await unpackService.refreshSharingDisabled(message._id)
+    } catch (error) {
+      // The hide is saved and recorded, so it stands; only the cards' share buttons are out of date
+      logger.error(`Could not update Unpacker cards after hiding message ${message._id}`, error)
+    }
   }
   await announce(conversationId, before, after)
 

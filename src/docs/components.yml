@@ -349,6 +349,12 @@ components:
           description: >-
             Group Chat posts only. Says where the post came from. A participant's share reads "<pseudonym> shared
             this explanation from <bot name>." Show it as written; other kinds of post will use other text.
+        sharingDisabled:
+          type: boolean
+          description: >-
+            Private Chat cards only, and only present when true. The card can't be shared to Group Chat, because a
+            hidden Group Chat post covers part of its passage. Never set on the card that made that post. Cleared
+            when the post is unhidden. Not sent live; clients see changes when messages load.
         groupChatShare:
           type: object
           description: >-
@@ -652,6 +658,7 @@ components:
             - cardNotFound
             - eventNotStarted
             - eventEnded
+            - sharingDisabled
             - eventLocked
             - chunkNotInTranscript
             - offsetPastEnd
@@ -669,7 +676,8 @@ components:
             2 minutes. noGroupChat (409), the event has no Group Chat. cardNotFound (404), the message to share
             is not one of the participant's Private Chat cards in this event. eventNotStarted (409), a share was
             sent during the pre-event window, when participants can join before the event starts. eventEnded
-            (409), a share was sent after the event ended.
+            (409), a share was sent after the event ended. sharingDisabled (409), a hidden Group Chat post covers
+            part of this passage, so it can't be shared while that post stays hidden.
             eventLocked (409), the event is locked, so no card can be posted.
             chunkNotInTranscript (400), a chunk ID is not in this event's transcript. offsetPastEnd
             (400), a position is past the end of its chunk. selectionBackwards (400), the selection
