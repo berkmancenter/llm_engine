@@ -22,9 +22,11 @@ const {
   buildPassage,
   explainPassage,
   getPassageContext,
+  toSharedChatText,
   UNPACK_CONTEXT_AFTER_SECONDS,
   UNPACK_CONTEXT_BEFORE_SECONDS,
-  UNPACK_PASSAGE_MAX_CHARACTERS
+  UNPACK_PASSAGE_MAX_CHARACTERS,
+  UNPACK_SHARED_QUOTE_MAX_CHARACTERS
 } = await import('../../../../src/agents/helpers/unpackPassage.js')
 const { default: Message } = await import('../../../../src/models/message.model.js')
 const { default: PLAIN_LANGUAGE_TERM_RULES } = await import('../../../../src/agents/helpers/plainLanguageRules.js')
@@ -347,5 +349,39 @@ describe('explainPassage', () => {
     expect(result.terms.map(({ term }) => term)).toEqual(['SLO', 'error budget', 'SRE'])
     expect(result.headline).toBe(sections.headline)
     expect(result.visual).toBeNull()
+  })
+})
+
+describe('toSharedChatText', () => {
+  const card = {
+    quote: 'Missing it eats the error budget.',
+    whatTheyreSaying: 'Missing the reliability target uses up the budget for mistakes.',
+    whyItMatters: 'It explains why feature work stops next.'
+  }
+
+  it('names the assistant, then gives the quote and the two explanation sections', () => {
+    expect(toSharedChatText(card, 'Sage')).toBe(
+      [
+        'Sharing this explanation from Sage:',
+        '"Missing it eats the error budget."',
+        "What they're saying: Missing the reliability target uses up the budget for mistakes.",
+        'Why it matters here: It explains why feature work stops next.'
+      ].join('\n\n')
+    )
+  })
+
+  it('cuts a long quote at the last whole word that fits and marks the cut', () => {
+    const quote = 'reliability '.repeat(40).trim()
+
+    const [, quoteLine] = toSharedChatText({ ...card, quote }, 'Sage').split('\n\n')
+
+    expect(quoteLine).toMatch(/^"(reliability )+reliability\.\.\."$/)
+    expect(quoteLine.length).toBeLessThanOrEqual(UNPACK_SHARED_QUOTE_MAX_CHARACTERS + '"..."'.length)
+  })
+
+  it('leaves a quote at the limit whole', () => {
+    const quote = 'a'.repeat(UNPACK_SHARED_QUOTE_MAX_CHARACTERS)
+
+    expect(toSharedChatText({ ...card, quote }, 'Sage')).toContain(`"${quote}"`)
   })
 })

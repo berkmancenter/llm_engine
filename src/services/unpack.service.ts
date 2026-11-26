@@ -20,6 +20,7 @@ import {
   isUnpackerEnabled,
   selectionTooLong,
   toPlainText,
+  toSharedChatText,
   TRANSCRIPT_TEXT_CHUNKS,
   unpackError,
   UNPACK_CONTEXT_AFTER_SECONDS,
@@ -926,7 +927,19 @@ async function postGroupCard(
   }
   try {
     await messageService.newMessageHandler(
-      { _id: messageId, conversation: conversationId, body: card, bodyType: 'json', channels: [groupChat] },
+      {
+        _id: messageId,
+        conversation: conversationId,
+        body: card,
+        bodyType: 'json',
+        channels: [groupChat],
+        // Adapters forward to chats that can't draw a card, such as Zoom, so they get a short text version
+        parseOutput: (saved) => ({
+          ...saved.toObject(),
+          bodyType: 'text',
+          body: toSharedChatText(card, event.assistant.agentConfig.botName)
+        })
+      },
       user,
       null,
       { serverCard: true }
