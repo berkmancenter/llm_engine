@@ -123,7 +123,7 @@ const setMessageHidden = async (messageId, requester, hidden: boolean, reason?: 
   }
   if (wasFlagged !== hidden) {
     try {
-      await unpackService.refreshSharingDisabled(message._id)
+      await unpackService.refreshSharingDisabled(conversationId, message._id)
     } catch (error) {
       // The hide is saved and recorded, so it stands; only the cards' share buttons are out of date
       logger.error(`Could not update Unpacker cards after hiding message ${message._id}`, error)

@@ -802,30 +802,34 @@ async function releaseHiddenAuthorsPosts(
     .select('message')
     .lean()
   if (rows.length === 0) return
-  const released = await Message.find({
-    _id: { $in: rows.map(({ message }) => message) },
-    conversation: conversationId,
-    owner: { $in: [...hiddenAuthors] },
-    hiddenByAdmin: { $ne: true }
-  })
-    .select('_id')
-    .lean()
+  const released = await findMessages(
+    conversationId,
+    'admin',
+    {
+      _id: { $in: rows.map(({ message }) => message) },
+      owner: { $in: [...hiddenAuthors] },
+      hiddenByAdmin: { $ne: true }
+    },
+    { select: '_id', lean: true }
+  )
   if (released.length === 0) return
   await UnpackGroupPost.deleteMany({ status: 'posted', message: { $in: released.map(({ _id }) => _id) } })
 }
 
 /** Group Chat Unpacker posts a moderator hid on their own that cover any of these chunks. */
-function findSingleHiddenGroupPosts(conversationId: mongoose.Types.ObjectId, chunkIds: string[]) {
-  return Message.find({
-    conversation: conversationId,
-    bodyType: 'json',
-    'body.type': 'unpack_explanation',
-    'body.destination': 'groupChat',
-    hiddenByAdmin: true,
-    'body.chunkIds': { $in: chunkIds }
-  })
-    .select('_id body.chunkIds')
-    .lean()
+function findSingleHiddenGroupPosts(conversationId: mongoose.Types.ObjectId | string, chunkIds: string[]) {
+  return findMessages(
+    conversationId,
+    'admin',
+    {
+      bodyType: 'json',
+      'body.type': 'unpack_explanation',
+      'body.destination': 'groupChat',
+      hiddenByAdmin: true,
+      'body.chunkIds': { $in: chunkIds }
+    },
+    { select: '_id body.chunkIds', lean: true }
+  )
 }
 
 /**
@@ -847,26 +851,28 @@ async function isSharingDisabled(conversationId: mongoose.Types.ObjectId, card: 
  * Marks the Private Chat cards that overlap a Group Chat post after a moderator hides or unhides it on its own, and
  * clears the mark once no hidden post overlaps a card. Does nothing for any other message.
  */
-async function refreshSharingDisabled(messageId: mongoose.Types.ObjectId | string) {
-  const post = await Message.findOne({
-    _id: messageId,
-    bodyType: 'json',
-    'body.type': 'unpack_explanation',
-    'body.destination': 'groupChat'
-  })
-    .select('conversation body.chunkIds')
-    .lean<{ conversation: mongoose.Types.ObjectId; body: UnpackExplanation }>()
+async function refreshSharingDisabled(
+  conversationId: mongoose.Types.ObjectId | string,
+  messageId: mongoose.Types.ObjectId | string
+) {
+  const [post]: { body: UnpackExplanation }[] = await findMessages(
+    conversationId,
+    'admin',
+    { _id: messageId, bodyType: 'json', 'body.type': 'unpack_explanation', 'body.destination': 'groupChat' },
+    { select: 'body.chunkIds', lean: true }
+  )
   if (!post) return
-  const conversationId = post.conversation
-  const cards = await Message.find({
-    conversation: conversationId,
-    bodyType: 'json',
-    'body.type': 'unpack_explanation',
-    'body.destination': 'privateChat',
-    'body.chunkIds': { $in: post.body.chunkIds }
-  })
-    .select('body.chunkIds body.groupChatShare')
-    .lean<{ _id: mongoose.Types.ObjectId; body: UnpackExplanation }[]>()
+  const cards: { _id: mongoose.Types.ObjectId; body: UnpackExplanation }[] = await findMessages(
+    conversationId,
+    'admin',
+    {
+      bodyType: 'json',
+      'body.type': 'unpack_explanation',
+      'body.destination': 'privateChat',
+      'body.chunkIds': { $in: post.body.chunkIds }
+    },
+    { select: 'body.chunkIds body.groupChatShare', lean: true }
+  )
   if (cards.length === 0) return
   const hiddenPosts = await findSingleHiddenGroupPosts(
     conversationId,
