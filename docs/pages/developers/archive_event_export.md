@@ -60,6 +60,39 @@ Archive export failed event=<id> attempts=<n> reason=<code>
 The old `Filed "..." to the archive inbox` log belongs to the unmerged historical
 branch. Use the ID-based messages above for this implementation.
 
+## Curator Slack notification
+
+Optionally, the worker posts a short card to a curator Slack channel each time an
+export creates a **new** private draft, so a curator knows to review it. Set both on
+the engine runtime (for production, in the app's environment secret):
+
+```text
+BKC_ARCHIVE_NOTIFY_SLACK_ADAPTER_ID=<_id of an existing Slack Adapter document>
+BKC_ARCHIVE_NOTIFY_SLACK_CHANNEL=<channel ID, e.g. C0123456789>
+```
+
+Notification stays off unless both are set. The worker borrows the bot token
+(`config.botToken`) of that Slack adapter; invite that bot to the channel first
+(`/invite @<bot>`), or Slack rejects the post with `not_in_channel`.
+
+- One ping per new draft: only an HTTP 201 from the archive API notifies. An
+  idempotent duplicate (200, e.g. a retry or a backfill re-run) stays quiet.
+- The card holds the event title, date and draft ID (`event-<hash>`) plus a hint
+  that it is waiting for curator review in the archive inbox. No summary text,
+  participants or other draft content goes to Slack.
+- Failures are logged, never fatal: the job stays `delivered` and is not retried.
+  A crash between saving `delivered` and posting skips the ping (accepted over
+  pinging twice). The worker logs one of:
+
+```text
+Archive export notified event=<id>
+Archive export notify failed event=<id> reason=<code>
+```
+
+Reasons include `adapter_not_found`, `adapter_not_slack`, `missing_bot_token`,
+`timeout` (10 s bound) and `slack_<error>` (e.g. `slack_not_in_channel`). Tokens
+and Slack response bodies are never logged.
+
 ## Verify one event and backfill
 
 On a trusted engine host, inspect eligible completed records without enqueueing:

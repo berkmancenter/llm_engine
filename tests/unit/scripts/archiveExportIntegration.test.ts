@@ -17,6 +17,9 @@ const MONGODB_URL = `mongodb://${host}/${DB_NAME}`
 process.env.BKC_ARCHIVE_EXPORT_ENABLED = 'true'
 process.env.BKC_ARCHIVE_API_URL = 'http://archive.invalid'
 process.env.BKC_ARCHIVE_API_TOKEN = 'local-test-only'
+// Keep the curator Slack notice off even if a local .env configures it.
+process.env.BKC_ARCHIVE_NOTIFY_SLACK_ADAPTER_ID = ''
+process.env.BKC_ARCHIVE_NOTIFY_SLACK_CHANNEL = ''
 
 const COLLECTIONS = ['conversations', 'topics', 'agendaJobs']
 let client: MongoClient

@@ -14,9 +14,25 @@ const event = {
 }
 const lean = jest.fn<() => Promise<unknown>>().mockResolvedValue(event)
 const query = { select: () => query, populate: () => query, lean }
-const config = { bkcArchive: { exportEnabled: true, apiUrl: 'https://archive.example', apiToken: 'test-only' } }
+const config = {
+  bkcArchive: {
+    exportEnabled: true,
+    apiUrl: 'https://archive.example',
+    apiToken: 'test-only',
+    notifySlackAdapterId: '',
+    notifySlackChannel: ''
+  }
+}
 const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const adapterLean = jest.fn<() => Promise<any>>()
+const adapterQuery = { select: () => adapterQuery, lean: adapterLean }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const postMessage = jest.fn<(...args: any[]) => Promise<any>>()
+const getClient = jest.fn(() => ({ chat: { postMessage } }))
 jest.unstable_mockModule('../src/models/conversation.model.js', () => ({ default: { findById: () => query } }))
+jest.unstable_mockModule('../src/models/adapter.model.js', () => ({ default: { findById: () => adapterQuery } }))
+jest.unstable_mockModule('../src/adapters/slack/client.js', () => ({ default: { getClient } }))
 jest.unstable_mockModule('../src/config/config.js', () => ({ default: config }))
 jest.unstable_mockModule('../src/config/logger.js', () => ({ default: logger }))
 const { archiveEvent } = await import('../../../src/jobs/handlers/archiveEvent.js')
@@ -32,9 +48,92 @@ function makeJob() {
 
 beforeEach(() => {
   config.bkcArchive.exportEnabled = true
+  config.bkcArchive.notifySlackAdapterId = ''
+  config.bkcArchive.notifySlackChannel = ''
   lean.mockResolvedValue(event)
+  adapterLean.mockReset().mockResolvedValue({ type: 'slack', config: { botToken: 'xoxb-test-only' } })
+  postMessage.mockReset().mockResolvedValue({ ok: true })
+  getClient.mockClear()
+  logger.info.mockClear()
+  logger.warn.mockClear()
 })
 afterEach(() => jest.restoreAllMocks())
+
+const draftPath = `inbox/conversations/event-${'c'.repeat(64)}.md`
+const ackWith = (status: number) =>
+  jest
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async () => new Response(JSON.stringify({ path: draftPath }), { status }))
+const enableNotify = () => {
+  config.bkcArchive.notifySlackAdapterId = '507f1f77bcf86cd799439099'
+  config.bkcArchive.notifySlackChannel = 'C0CURATORS'
+}
+const logged = () => JSON.stringify([...logger.info.mock.calls, ...logger.warn.mock.calls])
+
+test('a newly created draft pings the curator channel exactly once, without draft content', async () => {
+  enableNotify()
+  ackWith(201)
+  const job = makeJob()
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(job.attrs.data.status).toBe('delivered')
+  expect(getClient).toHaveBeenCalledWith('xoxb-test-only')
+  expect(postMessage).toHaveBeenCalledTimes(1)
+  const args = postMessage.mock.calls[0][0]
+  expect(args.channel).toBe('C0CURATORS')
+  expect(JSON.stringify(args)).toContain(`event-${'c'.repeat(64)}`)
+  expect(JSON.stringify(args)).toContain('Public event')
+  expect(JSON.stringify(args)).not.toContain('Summary')
+  expect(logger.info).toHaveBeenCalledWith('Archive export notified event=event-1')
+  expect(logged()).not.toContain('xoxb-test-only')
+})
+
+test('a duplicate acknowledgment (200) does not ping', async () => {
+  enableNotify()
+  ackWith(200)
+  const job = makeJob()
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(job.attrs.data.status).toBe('delivered')
+  expect(postMessage).not.toHaveBeenCalled()
+})
+
+test('no ping when notification is unconfigured or only half configured', async () => {
+  ackWith(201)
+  await archiveEvent(makeJob() as unknown as Job<ArchiveEventJobData>)
+  config.bkcArchive.notifySlackChannel = 'C0CURATORS'
+  await archiveEvent(makeJob() as unknown as Job<ArchiveEventJobData>)
+  expect(postMessage).not.toHaveBeenCalled()
+  expect(getClient).not.toHaveBeenCalled()
+})
+
+test('a Slack failure is logged and leaves the job delivered without a retry', async () => {
+  enableNotify()
+  ackWith(201)
+  postMessage.mockRejectedValue(
+    Object.assign(new Error('An API error occurred: not_in_channel'), { data: { error: 'not_in_channel' } })
+  )
+  const job = makeJob()
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(job.attrs.data).toEqual({ conversationId: 'event-1', status: 'delivered', attempts: 1, path: draftPath })
+  expect(job.schedule).not.toHaveBeenCalled()
+  expect(logger.warn).toHaveBeenCalledWith('Archive export notify failed event=event-1 reason=slack_not_in_channel')
+})
+
+test('a missing or non-Slack adapter is logged, not fatal', async () => {
+  enableNotify()
+  ackWith(201)
+  adapterLean.mockResolvedValueOnce(null)
+  const job = makeJob()
+  await archiveEvent(job as unknown as Job<ArchiveEventJobData>)
+  expect(job.attrs.data.status).toBe('delivered')
+  expect(logger.warn).toHaveBeenCalledWith('Archive export notify failed event=event-1 reason=adapter_not_found')
+  adapterLean.mockResolvedValueOnce({ type: 'zoom', config: {} })
+  const second = makeJob()
+  await archiveEvent(second as unknown as Job<ArchiveEventJobData>)
+  expect(second.attrs.data.status).toBe('delivered')
+  expect(logger.warn).toHaveBeenCalledWith('Archive export notify failed event=event-1 reason=adapter_not_slack')
+  expect(postMessage).not.toHaveBeenCalled()
+})
 
 test('successful export is acknowledged once and survives rerunning the job', async () => {
   const job = makeJob()
